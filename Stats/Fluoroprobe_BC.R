@@ -302,3 +302,126 @@ mantel_results <- data.frame(
 )
 
 mantel_results
+
+##############################
+
+# 7) Betadisper (MT, 18S, 23S, Fluoroprobe)
+
+##############################
+
+# Betadisper function
+beta_dispersion <- function(df_results, metadata, treatment_col, marker) {
+  
+  # Ensure sample order matches
+  meta_sub <- metadata %>%
+    filter(SampleID %in% rownames(df_results)) %>%
+    arrange(match(SampleID, rownames(df_results)))
+  
+  # Bray-Curtis distance
+  bray_dist <- vegdist(df_results, method = "bray")
+  
+  # Betadisper
+  bd <- betadisper(bray_dist, meta_sub[[treatment_col]])
+  
+  # Permutation test
+  bd_perm <- permutest(bd, permutations = 9999)
+  
+  # Extract distances to centroid
+  bd_df <- data.frame(
+    SampleID = rownames(df_results),
+    Distance_to_Centroid = bd$distances,
+    Treatment = meta_sub[[treatment_col]],
+    Method = marker
+  )
+  
+  return(list(
+    betadisper = bd,
+    permutest = bd_perm,
+    distances = bd_df
+  ))
+}
+
+# Run Betadisper for each marker/method
+BD_MT <- beta_dispersion(df_result_MT, metadata, treatment_col = "nutrient_level", marker = "Metatranscriptomics")
+BD_18S <- beta_dispersion(df_result_18S, metadata, treatment_col = "nutrient_level", marker = "18S")
+BD_23S <- beta_dispersion(df_result_23S, metadata, treatment_col = "nutrient_level", marker = "23S")
+BD_fluoro <- beta_dispersion(fluoro_avg, metadata, treatment_col = "nutrient_level", marker = "Fluoroprobe")
+
+# Combine and set factor levels/labels
+BD_all_raw <- bind_rows(
+  BD_MT$distances,
+  BD_18S$distances,
+  BD_23S$distances,
+  BD_fluoro$distances
+) %>%
+  mutate(
+    Method = factor(
+      Method,
+      levels = c("Metatranscriptomics", "18S", "23S", "Fluoroprobe"),
+      labels = c("MT", "18S", "23S", "FM")
+    ),
+    Treatment = factor(Treatment, levels = c("Moderate", "High"))
+  )
+
+nutrient_colors <- c("Moderate" = "#DDCC77", "High" = "#117733")
+
+# Plot beta dispersion as box plot
+beta_disp_plot <- ggplot(
+  BD_all_raw,
+  aes(x = Method, y = Distance_to_Centroid, fill = Treatment)
+) +
+  geom_boxplot(
+    position = position_dodge(width = 0.75),
+    width = 0.6,
+    outlier.size = 0.8,
+    alpha = 0.9
+  ) +
+  geom_jitter(
+    position = position_jitterdodge(
+      jitter.width = 0.15,
+      dodge.width = 0.75
+    ),
+    size = 1.2,
+    alpha = 0.6,
+    color = "black",
+    show.legend = FALSE
+  ) +
+  scale_fill_manual(values = nutrient_colors) +
+  scale_x_discrete(position = "top") +
+  scale_y_continuous(position = "right") +
+  theme_classic() +
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y.left = element_blank(),
+    axis.title.y.right = element_text(size = 14, margin = margin(l = 10)),
+    
+    axis.text.x.top = element_text(size = 13, face = "bold", margin = margin(b = 8)),
+    axis.text.x.bottom = element_blank(),
+    axis.ticks.x.bottom = element_blank(),
+    
+    axis.text.y.left = element_blank(),
+    axis.text.y.right = element_text(size = 12),
+    axis.ticks.y.left = element_blank(),
+    
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.5),
+    
+    legend.position = "right",
+    legend.title = element_text(size = 15, face = "bold"),
+    legend.text = element_text(size = 13),
+    legend.key.size = unit(1.2, "cm")
+  ) +
+  labs(
+    y = "Distance to Centroid (β-dispersion)",
+    fill = "Nutrient Enrichment"
+  )
+
+beta_disp_plot
+
+ggsave(
+  filename = "/Users/alekseisychterz/Desktop/Work/PhD/Chapter_1/figures/Final_Plot_MM_Marker_Partition/BD_BetaDispersion_Fluoro_boxplot.png",
+  plot = beta_disp_plot,
+  width = 8,
+  height = 6,
+  units = "in",
+  dpi = 300
+)
